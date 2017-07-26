@@ -30,12 +30,12 @@ class Parser():
     """Parses SERP pages.
 
     Each search engine results page (SERP) has a similar layout:
-    
+
     The main search results are usually in a html container element (#main, .results, #leftSide).
-    There might be separate columns for other search results (like ads for example). Then each 
+    There might be separate columns for other search results (like ads for example). Then each
     result contains basically a link, a snippet and a description (usually some text on the
     target site). It's really astonishing how similar other search engines are to Google.
-    
+
     Each child class (that can actual parse a concrete search engine results page) needs
     to specify css selectors for the different search types (Like normal search, news search, video search, ...).
 
@@ -73,10 +73,10 @@ class Parser():
         """Create new Parser instance and parse all information.
 
         Args:
-            html: The raw html from the search engine search. If not provided, you can parse 
+            html: The raw html from the search engine search. If not provided, you can parse
                     the data later by calling parse(html) directly.
             searchtype: The search type. By default "normal"
-            
+
         Raises:
             Assertion error if the subclassed
             specific parser cannot handle the the settings.
@@ -109,8 +109,8 @@ class Parser():
 
     def parse(self, html=None):
         """Public function to start parsing the search engine results.
-        
-        Args: 
+
+        Args:
             html: The raw html data to extract the SERP entries from.
         """
         if html:
@@ -137,7 +137,7 @@ class Parser():
 
     def _parse(self, cleaner=None):
         """Internal parse the dom according to the provided css selectors.
-        
+
         Raises: InvalidSearchTypeException if no css selectors for the searchtype could be found.
         """
         self.num_results = 0
@@ -211,10 +211,13 @@ class Parser():
 
                     serp_result['rank'] = index + 1
 
+                    if self.searchtype == "related":
+                        self.search_results[result_type].append(serp_result)
+                        self.num_results += 1
                     # only add items that have not None links.
                     # Avoid duplicates. Detect them by the link.
                     # If statement below: Lazy evaluation. The more probable case first.
-                    if 'link' in serp_result and serp_result['link'] and \
+                    elif 'link' in serp_result and serp_result['link'] and \
                             not [e for e in self.search_results[result_type] if e['link'] == serp_result['link']]:
                         self.search_results[result_type].append(serp_result)
                         self.num_results += 1
@@ -279,7 +282,7 @@ class Parser():
 
     def after_parsing(self):
         """Subclass specific behaviour after parsing happened.
-        
+
         Override in subclass to add search engine specific behaviour.
         Commonly used to clean the results.
         """
@@ -312,7 +315,7 @@ class Parser():
 
 
 """
-Here follow the different classes that provide CSS selectors 
+Here follow the different classes that provide CSS selectors
 for different types of SERP pages of several common search engines.
 
 Just look at them and add your own selectors in a new class if you
@@ -422,12 +425,12 @@ class GoogleParser(Parser):
 
     def after_parsing(self):
         """Clean the urls.
-        
+
         A typical scraped results looks like the following:
-        
+
         '/url?q=http://www.youtube.com/user/Apple&sa=U&ei=\
         lntiVN7JDsTfPZCMgKAO&ved=0CFQQFjAO&usg=AFQjCNGkX65O-hKLmyq1FX9HQqbb9iYn9A'
-        
+
         Clean with a short regex.
         """
         super().after_parsing()
@@ -668,7 +671,7 @@ class YahooParser(Parser):
 
     search_engine = 'yahoo'
 
-    search_types = ['normal', 'image']
+    search_types = ['normal', 'image', 'related']
 
     no_results_selector = []
 
@@ -697,6 +700,24 @@ class YahooParser(Parser):
                 'visible_link': 'span::text'
             },
         },
+        'ads_main': {
+            'top_ad': {
+                'container': '#main .searchCenterTopAds',
+                'result_container': 'li[class^="first"]',
+                'link': 'h3.title > a::attr(href)',
+                'snippet': '.compDlink span::text',
+                'title': 'h3.title > a::text',
+                'visible_link': 'a.ad-domain::text'
+            },
+            'bottom_ad': {
+                'container': '#main .searchCenterBottomAds',
+                'result_container': 'li[class^="first"]',
+                'link': 'h3.title > a::attr(href)',
+                'snippet': '.compText > p::text',
+                'title': 'h3.title > a::text',
+                'visible_link': 'a.ad-domain::text'
+            }
+        }
     }
 
     image_search_selectors = {
@@ -706,6 +727,17 @@ class YahooParser(Parser):
                 'result_container': '#sres > li',
                 'link': 'a::attr(href)'
             },
+        }
+    }
+
+    related_search_selectors = {
+        'results': {
+            "us_ip": {
+                'container': 'ol.searchCenterFooter',
+                'result_container': 'td',
+                'keyword': 'a::text',
+                'link': 'a::attr(href)'
+            }
         }
     }
 
@@ -1039,7 +1071,11 @@ def parse_serp(config, html=None, parser=None, scraper=None, search_engine=None,
     if query:
         serp.query = query
 
-    if parser:
+    search_type = config.get("search_type", None)
+
+    if search_type == "related":
+        serp.set_related_values_from_parser(parser)
+    elif parser:
         serp.set_values_from_parser(parser)
     if scraper:
         serp.set_values_from_scraper(scraper)
@@ -1049,12 +1085,12 @@ def parse_serp(config, html=None, parser=None, scraper=None, search_engine=None,
 
 if __name__ == '__main__':
     """Originally part of https://github.com/NikolaiT/GoogleScraper.
-    
-    Only for testing purposes: May be called directly with an search engine 
+
+    Only for testing purposes: May be called directly with an search engine
     search url. For example:
-    
+
     python3 parsing.py 'http://yandex.ru/yandsearch?text=GoogleScraper&lr=178&csg=82%2C4317%2C20%2C20%2C0%2C0%2C0'
-    
+
     Please note: Using this module directly makes little sense, because requesting such urls
     directly without imitating a real browser (which is done in my GoogleScraper module) makes
     the search engines return crippled html, which makes it impossible to parse.

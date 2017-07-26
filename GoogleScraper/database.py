@@ -27,6 +27,7 @@ Base = declarative_base()
 
 scraper_searches_serps = Table('scraper_searches_serps', Base.metadata,
                                Column('scraper_search_id', Integer, ForeignKey('scraper_search.id')),
+                               Column('related_keyword_id', Integer, ForeignKey('keyword.id')),
                                Column('serp_id', Integer, ForeignKey('serp.id')))
 
 
@@ -48,6 +49,12 @@ class ScraperSearch(Base):
         backref=backref('scraper_searches', uselist=True)
     )
 
+    keywords = relationship(
+        'Keyword',
+        secondary=scraper_searches_serps,
+        backref=backref('scraper_searches', uselist=True)
+    )
+
     def __str__(self):
         return '<ScraperSearch[{id}] scraped for {number_search_queries} unique keywords. Started scraping: {started_' \
                'searching} and stopped: {stopped_searching}>'.format(**self.__dict__)
@@ -62,6 +69,7 @@ class SearchEngineResultsPage(Base):
     id = Column(Integer, primary_key=True)
     status = Column(String, default='successful')
     search_engine_name = Column(String)
+    search_type = Column(String)
     scrape_method = Column(String)
     page_number = Column(Integer)
     requested_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -90,6 +98,10 @@ class SearchEngineResultsPage(Base):
     no_results = Column(Boolean, default=False)
 
     def __str__(self):
+        if self.search_type == "related":
+            return '<SERP[{search_engine_name}] has [{num_results}] keywords results for query "{query}">'.format(
+                **self.__dict__)
+
         return '<SERP[{search_engine_name}] has [{num_results}] link results for query "{query}">'.format(
             **self.__dict__)
 
@@ -114,6 +126,7 @@ class SearchEngineResultsPage(Base):
         self.num_results = parser.num_results
         self.effective_query = parser.effective_query
         self.no_results = parser.no_results
+        self.search_type = parser.searchtype
 
         for key, value in parser.search_results.items():
             if isinstance(value, list):
@@ -132,6 +145,31 @@ class SearchEngineResultsPage(Base):
                         rank=link['rank'],
                         serp=self,
                         link_type=key
+                    )
+
+    def set_related_values_from_parser(self, parser):
+        """Populate itself from a parser object.
+
+        Args:
+            A parser object.
+        """
+
+        self.num_results_for_query = parser.num_results_for_query
+        self.num_results = parser.num_results
+        self.effective_query = parser.effective_query
+        self.no_results = parser.no_results
+        self.search_type = parser.searchtype
+        self.scrape_method = parser.config.get("scrape_method")
+        self.search_engine_name = parser.config.get("search_engines")
+
+        for key, value in parser.search_results.items():
+            if isinstance(value, list):
+                for rk in value:
+                    Keyword(
+                        keyword=rk['keyword'],
+                        rank=rk['rank'],
+                        serp=self,
+                        keyword_type=key
                     )
 
     def set_values_from_scraper(self, scraper):
@@ -184,6 +222,23 @@ class Link(Base):
     def __repr__(self):
         return self.__str__()
 
+class Keyword(Base):
+    __tablename__ = 'keyword'
+
+    id = Column(Integer, primary_key=True)
+    keyword = Column(String)
+    rank = Column(Integer)
+    keyword_type = Column(String)
+
+    serp_id = Column(Integer, ForeignKey('serp.id'))
+    serp = relationship(SearchEngineResultsPage, backref=backref('keywords', uselist=True))
+
+    def __str__(self):
+        return '<Keyword at rank {rank} has keyword: {keyword}>'.format(**self.__dict__)
+
+    def __repr__(self):
+        return self.__str__()
+
 
 class Proxy(Base):
     __tablename__ = 'proxy'
@@ -232,7 +287,7 @@ class SearchEngine(Base):
 
 class SearchEngineProxyStatus(Base):
     """Stores last proxy status for the given search engine.
-    
+
     A proxy can either work on a search engine or not.
     """
 

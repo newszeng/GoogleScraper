@@ -295,7 +295,7 @@ def main(return_results=False, parse_cmd_line=True, config_from_dict=None):
     if not proxies:
         raise Exception('No proxies available and using own IP is prohibited by configuration. Turning down.')
 
-    valid_search_types = ('normal', 'video', 'news', 'image')
+    valid_search_types = ('normal', 'video', 'news', 'image', 'related')
     if config.get('search_type') not in valid_search_types:
         raise WrongConfigurationError('Invalid search type! Select one of {}'.format(repr(valid_search_types)))
 
@@ -456,4 +456,4 @@ def main(return_results=False, parse_cmd_line=True, config_from_dict=None):
     session.commit()
 
     if return_results:
-        return scraper_search
+        return session # scraper_search
